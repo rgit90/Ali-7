@@ -19,12 +19,10 @@ from telegram.ext import (
     ContextTypes,
 )
 import asyncio
-import nest_asyncio
-from aiohttp import web
+import threading
+from flask import Flask, jsonify
 import pytz
 from groq import Groq
-
-nest_asyncio.apply()
 
 TOKEN = "7706873666:AAGCOsRF45enQmH5vC1wfzy29Mnyy_NyBQ0"
 IRAQ_TZ = pytz.timezone("Asia/Baghdad")
@@ -1495,19 +1493,19 @@ async def auto_backup(context: ContextTypes.DEFAULT_TYPE):
         logging.info(f"💾 نسخة احتياطية تلقائية ناجحة — {len(users_db)} مستخدم")
 
 
-# ──────────────────────── السيرفر ─────────────────────────
+# ──────────────────────── سيرفر Flask ─────────────────────────
+
+flask_app = Flask(__name__)
 
 
-async def handle_stats_page(request):
+@flask_app.route("/")
+def stats_page():
     today = get_today_str()
     total = len(users_db)
-    active = len(
-        [
-            u
-            for u in users_db.values()
-            if u.get("last_task_date") == today and u.get("task_completed_today")
-        ]
-    )
+    active = len([
+        u for u in users_db.values()
+        if u.get("last_task_date") == today and u.get("task_completed_today")
+    ])
     total_pts = sum(u.get("points", 0) for u in users_db.values())
     top_streak = max((u.get("streak", 0) for u in users_db.values()), default=0)
     try:
@@ -1554,45 +1552,39 @@ h1{{font-size:2.4em;color:#a78bfa;margin-bottom:6px;text-shadow:0 0 25px #7c3aed
 <div class="status">✅ البوت يعمل — جميع الأنظمة نشطة — التنبيهات مجدولة</div>
 <p class="footer">آخر تحديث: {get_local_time().strftime("%Y-%m-%d %H:%M:%S")} (بغداد)</p>
 </div></body></html>"""
-    return web.Response(text=html, content_type="text/html")
+    return html
 
 
-async def handle_api(request):
+@flask_app.route("/api")
+def api_page():
     today = get_today_str()
-    return web.json_response(
-        {
-            "total_users": len(users_db),
-            "active_today": len(
-                [
-                    u
-                    for u in users_db.values()
-                    if u.get("last_task_date") == today
-                    and u.get("task_completed_today")
-                ]
-            ),
-            "total_points": sum(u.get("points", 0) for u in users_db.values()),
-            "server_time": get_local_time().isoformat(),
-            "status": "running",
-        }
-    )
+    return jsonify({
+        "total_users": len(users_db),
+        "active_today": len([
+            u for u in users_db.values()
+            if u.get("last_task_date") == today and u.get("task_completed_today")
+        ]),
+        "total_points": sum(u.get("points", 0) for u in users_db.values()),
+        "server_time": get_local_time().isoformat(),
+        "status": "running",
+    })
 
 
-async def start_web_server():
-    app_web = web.Application()
-    app_web.router.add_get("/", handle_stats_page)
-    app_web.router.add_get("/api", handle_api)
-    runner = web.AppRunner(app_web)
-    await runner.setup()
-    await web.TCPSite(runner, "0.0.0.0", 8080, reuse_port=True).start()
-    logging.info("🌐 سيرفر الويب بدأ على المنفذ 8080")
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    logging.info(f"🌐 سيرفر Flask بدأ على المنفذ {port}")
+    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 
 # ─────────────────────── Main ─────────────────────────
 
 
-async def main():
-    await start_web_server()
+def main():
+    # شغّل Flask في thread منفصل
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
 
+    # شغّل البوت
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -1630,8 +1622,8 @@ async def main():
     logging.info("📢 10 تنبيهات مجدولة يومياً")
     logging.info("💾 نسخ احتياطية كل ساعتين + يومية")
 
-    await app.run_polling()
+    app.run_polling()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
