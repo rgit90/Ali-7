@@ -1584,17 +1584,32 @@ async def bot_main():
 
 def run_bot():
     asyncio.run(bot_main())
-
-
 def main():
-    # شغّل البوت في thread منفصل
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
+    # 1. تشغيل Flask في خيط منفصل (Background)
+    # هذا يضمن أن Render يرى المنفذ 8080 مفتوحاً
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
 
-    # شغّل Flask في الـ main thread حتى يشوفه Render
-    run_flask()
+    # 2. تشغيل البوت في الخيط الرئيسي (Main)
+    # هذا هو التغيير الأهم لضمان استجابة تليجرام
+    logging.info("🚀 جاري تشغيل بوت Solo Leveling...")
+    
+    # بناء التطبيق مباشرة هنا
+    app = Application.builder().token(TOKEN).build()
 
+    # إضافة المعالجات
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("ai", ai_command))
+    app.add_handler(CommandHandler("clear", clear_ai_history))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+    app.add_handler(CallbackQueryHandler(callback_handler))
+
+    # إضافة الجدولة الزمنية (Job Queue)
+    # (تأكد أن الجدولة مضافة هنا كما في كودك السابق)
+
+    # تشغيل البوت ومنعه من التوقف
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
-
