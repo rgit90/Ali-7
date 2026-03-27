@@ -24,8 +24,7 @@ from flask import Flask, jsonify
 import pytz
 from groq import Groq
 from pymongo import MongoClient
-
-TOKEN = "7706873666:AAGCOsRF45enQmH5vC1wfzy29Mnyy_NyBQ0"
+TOKEN = os.environ.get("BOT_TOKEN", "7706873666:AAGCOsRF45enQmH5vC1wfzy29Mnyy_NyBQ0")
 IRAQ_TZ = pytz.timezone("Asia/Baghdad")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://alisalam20000003_db_user:nbmIrQQaQce75ClT@cluster0.v7yr3z5.mongodb.net/?appName=Cluster0")
