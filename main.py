@@ -23,10 +23,12 @@ import threading
 from flask import Flask, jsonify
 import pytz
 from groq import Groq
+from pymongo import MongoClient
 
 TOKEN = "7706873666:AAGCOsRF45enQmH5vC1wfzy29Mnyy_NyBQ0"
 IRAQ_TZ = pytz.timezone("Asia/Baghdad")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://alisalam20000003_db_user:nbmIrQQaQce75ClT@cluster0.v7yr3z5.mongodb.net/?appName=Cluster0")
 
 # ── تهيئة Groq AI ──
 _groq_client = None
@@ -92,81 +94,50 @@ def get_today_str():
     return get_local_time().strftime("%Y-%m-%d")
 
 
-# ─────────────────────── قاعدة البيانات (JSON) ───────────────────────
+# ─────────────────────── قاعدة البيانات (MongoDB) ───────────────────────
 
-DATA_FILE = "data/users.json"
-BACKUP_DIR = "data/backups"
-os.makedirs(BACKUP_DIR, exist_ok=True)
-os.makedirs("data", exist_ok=True)
+_mongo_client = MongoClient(MONGO_URI)
+_mongo_db = _mongo_client["solo_leveling"]
+_users_col = _mongo_db["users"]
+logging.info("✅ متصل بـ MongoDB Atlas")
 
 
 def get_users_db():
     try:
-        if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return {str(k): dict(v) for k, v in data.items()}
-        recovered = _load_latest_backup()
-        return recovered if recovered else {}
+        users = {}
+        for doc in _users_col.find():
+            uid = str(doc["_id"])
+            doc.pop("_id", None)
+            users[uid] = doc
+        return users
     except Exception as e:
-        logging.error(f"❌ خطأ في تحميل البيانات: {e}")
-        recovered = _load_latest_backup()
-        return recovered if recovered else {}
+        logging.error(f"❌ خطأ في تحميل البيانات من MongoDB: {e}")
+        return {}
 
 
 def save_users_db(users_dict):
     try:
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(users_dict, f, ensure_ascii=False, indent=2)
+        for uid, data in users_dict.items():
+            _users_col.update_one(
+                {"_id": uid},
+                {"$set": data},
+                upsert=True
+            )
     except Exception as e:
-        logging.error(f"❌ خطأ في حفظ البيانات: {e}")
+        logging.error(f"❌ خطأ في حفظ البيانات إلى MongoDB: {e}")
 
 
 def _load_latest_backup():
-    try:
-        files = sorted(
-            [
-                f
-                for f in os.listdir(BACKUP_DIR)
-                if f.startswith("backup_") and f.endswith(".json")
-            ],
-            reverse=True,
-        )
-        if not files:
-            return None
-        path = os.path.join(BACKUP_DIR, files[0])
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        logging.warning(f"⚠️ تم استرداد البيانات من: {files[0]}")
-        return {str(k): dict(v) for k, v in data.items()}
-    except Exception as e:
-        logging.error(f"❌ فشل استرداد النسخة الاحتياطية: {e}")
     return None
 
 
 def create_backup():
     try:
-        timestamp = get_local_time().strftime("%Y%m%d_%H%M")
-        path = os.path.join(BACKUP_DIR, f"backup_{timestamp}.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(users_db, f, ensure_ascii=False, indent=2)
-        # احتفظ فقط بآخر 14 نسخة
-        all_backups = sorted(
-            [
-                f
-                for f in os.listdir(BACKUP_DIR)
-                if f.startswith("backup_") and f.endswith(".json")
-            ]
-        )
-        for old in all_backups[:-14]:
-            try:
-                os.remove(os.path.join(BACKUP_DIR, old))
-            except Exception:
-                pass
-        logging.info(f"💾 نسخة احتياطية محفوظة: backup_{timestamp}.json")
+        count = _users_col.count_documents({})
+        logging.info(f"💾 MongoDB يحفظ البيانات تلقائياً — {count} مستخدم")
         return True
     except Exception as e:
-        logging.error(f"❌ فشل إنشاء النسخة الاحتياطية: {e}")
+        logging.error(f"❌ خطأ في التحقق من MongoDB: {e}")
         return False
 
 
@@ -357,10 +328,15 @@ REMIND_MSGS = {
 # ──────────────────────── إدارة المستخدمين ──────────────────────
 
 
+# ──────────────────────── إدارة المستخدمين ──────────────────────
+
+
 def add_user(user_id, user_name="الصياد"):
     uid = str(user_id)
-    if uid not in users_db:
-        users_db[uid] = {
+    existing = _users_col.find_one({"_id": uid})
+    if not existing:
+        new_data = {
+            "_id": uid,
             "name": user_name,
             "points": 0,
             "streak": 0,
@@ -376,16 +352,17 @@ def add_user(user_id, user_name="الصياد"):
             "joined_date": get_today_str(),
             "total_penalties": 0,
         }
-        save_users_db(users_db)
+        _users_col.insert_one(new_data)
+        users_db[uid] = {k: v for k, v in new_data.items() if k != "_id"}
         logging.info(f"👤 مستخدم جديد: {uid} ({user_name})")
 
 
 def get_user(user_id):
     global users_db
-    users_db = get_users_db()
-    u = users_db.get(str(user_id))
-    if u:
-        # تأكد من وجود كل الحقول الجديدة
+    uid = str(user_id)
+    doc = _users_col.find_one({"_id": uid})
+    if doc:
+        doc.pop("_id", None)
         defaults = {
             "missed_days": 0,
             "consecutive_misses": 0,
@@ -393,19 +370,25 @@ def get_user(user_id):
             "total_penalties": 0,
         }
         for k, v in defaults.items():
-            if k not in u:
-                u[k] = v
-    return u
+            if k not in doc:
+                doc[k] = v
+        users_db[uid] = doc
+        return doc
+    return None
 
 
 def update_user(user_id, **kwargs):
     global users_db
     uid = str(user_id)
-    if uid not in users_db:
+    existing = _users_col.find_one({"_id": uid})
+    if not existing:
         add_user(user_id)
-    for k, v in kwargs.items():
-        users_db[uid][k] = v
-    save_users_db(users_db)
+    _users_col.update_one({"_id": uid}, {"$set": kwargs}, upsert=True)
+    if uid in users_db:
+        users_db[uid].update(kwargs)
+    else:
+        users_db[uid] = kwargs
+
 
 
 def get_rank_info(points):
@@ -1318,19 +1301,18 @@ def _pick_remind_msg(style, category):
 
 
 async def _send_reminder_to_all(context, category, extra_lines=""):
-    global users_db
-    users_db = get_users_db()
     today = get_today_str()
     count = 0
-    for uid, data in users_db.items():
-        if data.get("last_task_date") == today and data.get("task_completed_today"):
+    for doc in _users_col.find():
+        uid = str(doc["_id"])
+        if doc.get("last_task_date") == today and doc.get("task_completed_today"):
             continue
-        style = data.get("notify_style", "normal")
-        streak = data.get("streak", 0)
-        pts = data.get("points", 0)
+        style = doc.get("notify_style", "normal")
+        streak = doc.get("streak", 0)
+        pts = doc.get("points", 0)
         rank, grade, _, _ = get_rank_info(pts)
         fire = "🔥" * min(streak, 5) if streak > 0 else "❄️"
-        consec = data.get("consecutive_misses", 0)
+        consec = doc.get("consecutive_misses", 0)
         consec_warn = f"\n⚠️ أيام فاشلة متتالية: {consec}!" if consec > 0 else ""
 
         msg = (
@@ -1400,12 +1382,12 @@ async def remind_1130pm(context):
 
 
 async def daily_penalty_check(context: ContextTypes.DEFAULT_TYPE):
-    global users_db
-    users_db = get_users_db()
     today = get_today_str()
     yesterday = (get_local_time() - timedelta(days=1)).strftime("%Y-%m-%d")
 
-    for uid, data in list(users_db.items()):
+    for doc in _users_col.find():
+        uid = str(doc["_id"])
+        data = doc
         last_date = data.get("last_task_date")
 
         # إعادة تعيين task_completed_today لليوم الجديد
@@ -1501,20 +1483,12 @@ flask_app = Flask(__name__)
 @flask_app.route("/")
 def stats_page():
     today = get_today_str()
-    total = len(users_db)
-    active = len([
-        u for u in users_db.values()
-        if u.get("last_task_date") == today and u.get("task_completed_today")
-    ])
-    total_pts = sum(u.get("points", 0) for u in users_db.values())
-    top_streak = max((u.get("streak", 0) for u in users_db.values()), default=0)
-    try:
-        backups = len([
-            f for f in os.listdir(BACKUP_DIR)
-            if f.startswith("backup_") and f.endswith(".json")
-        ])
-    except Exception:
-        backups = "?"
+    all_users = list(_users_col.find())
+    total = len(all_users)
+    active = sum(1 for u in all_users if u.get("last_task_date") == today and u.get("task_completed_today"))
+    total_pts = sum(u.get("points", 0) for u in all_users)
+    top_streak = max((u.get("streak", 0) for u in all_users), default=0)
+    backups = "MongoDB ☁️"
 
     html = f"""<!DOCTYPE html>
 <html dir="rtl" lang="ar">
@@ -1558,13 +1532,11 @@ h1{{font-size:2.4em;color:#a78bfa;margin-bottom:6px;text-shadow:0 0 25px #7c3aed
 @flask_app.route("/api")
 def api_page():
     today = get_today_str()
+    all_users = list(_users_col.find())
     return jsonify({
-        "total_users": len(users_db),
-        "active_today": len([
-            u for u in users_db.values()
-            if u.get("last_task_date") == today and u.get("task_completed_today")
-        ]),
-        "total_points": sum(u.get("points", 0) for u in users_db.values()),
+        "total_users": len(all_users),
+        "active_today": sum(1 for u in all_users if u.get("last_task_date") == today and u.get("task_completed_today")),
+        "total_points": sum(u.get("points", 0) for u in all_users),
         "server_time": get_local_time().isoformat(),
         "status": "running",
     })
@@ -1611,14 +1583,19 @@ async def bot_main():
     await app.run_polling()
 
 
-def main():
-    # شغّل Flask في thread منفصل
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-
-    # شغّل البوت في asyncio loop
+def run_bot():
     asyncio.run(bot_main())
+
+
+def main():
+    # شغّل البوت في thread منفصل
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+
+    # شغّل Flask في الـ main thread حتى يشوفه Render
+    run_flask()
 
 
 if __name__ == "__main__":
     main()
+
