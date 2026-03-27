@@ -4,4 +4,4 @@ pymongo[srv]
 dnspython
 flask
 groq
-aiohttp
+pytz
