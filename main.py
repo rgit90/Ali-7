@@ -1579,12 +1579,7 @@ def run_flask():
 # ─────────────────────── Main ─────────────────────────
 
 
-def main():
-    # شغّل Flask في thread منفصل
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-
-    # شغّل البوت
+async def bot_main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -1596,7 +1591,6 @@ def main():
 
     jq = app.job_queue
 
-    # ── تنبيهات مجدولة حسب ساعات العراق ──
     jq.run_daily(remind_morning, time=datetime_time(8, 0, tzinfo=IRAQ_TZ))
     jq.run_daily(remind_10am, time=datetime_time(10, 0, tzinfo=IRAQ_TZ))
     jq.run_daily(remind_noon, time=datetime_time(12, 0, tzinfo=IRAQ_TZ))
@@ -1607,22 +1601,23 @@ def main():
     jq.run_daily(remind_10pm, time=datetime_time(22, 0, tzinfo=IRAQ_TZ))
     jq.run_daily(remind_11pm, time=datetime_time(23, 0, tzinfo=IRAQ_TZ))
     jq.run_daily(remind_1130pm, time=datetime_time(23, 30, tzinfo=IRAQ_TZ))
-
-    # ── عقوبة منتصف الليل ──
     jq.run_daily(daily_penalty_check, time=datetime_time(0, 1, tzinfo=IRAQ_TZ))
-
-    # ── نسخ احتياطي كل ساعتين ──
     jq.run_repeating(auto_backup, interval=7200, first=300)
-
-    # ── نسخة احتياطية يومية عند الفجر ──
     jq.run_daily(auto_backup, time=datetime_time(3, 0, tzinfo=IRAQ_TZ))
 
     logging.info("🚀 بوت Solo Leveling بدأ!")
     logging.info(f"👥 المستخدمين: {len(users_db)}")
-    logging.info("📢 10 تنبيهات مجدولة يومياً")
-    logging.info("💾 نسخ احتياطية كل ساعتين + يومية")
 
-    app.run_polling()
+    await app.run_polling()
+
+
+def main():
+    # شغّل Flask في thread منفصل
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
+    # شغّل البوت في asyncio loop
+    asyncio.run(bot_main())
 
 
 if __name__ == "__main__":
