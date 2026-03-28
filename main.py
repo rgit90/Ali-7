@@ -1529,7 +1529,7 @@ def main():
 
     # 5. تشغيل البوت (الطريقة المتوافقة مع Python 3.14 و Render)
     logging.info("🚀 نظام Solo Leveling بدأ العمل...")
-    
+
     # لا تقم بإنشاء loop يدوياً، دع run_polling تتعامل مع ذلك
     # stop_signals=None هو السر لعدم تعليق البوت في Render
     app.run_polling(
