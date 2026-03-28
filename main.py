@@ -24,6 +24,7 @@ from flask import Flask, jsonify
 import pytz
 from groq import Groq
 from pymongo import MongoClient
+
 TOKEN = os.environ.get("BOT_TOKEN", "7706873666:AAGCOsRF45enQmH5vC1wfzy29Mnyy_NyBQ0")
 IRAQ_TZ = pytz.timezone("Asia/Baghdad")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -206,7 +207,6 @@ TASKS_BY_LEVEL = [
     {"ضغط": 100, "سكوات": 100, "بطن": 100, "ركض": 15, "قراءة": 8},
 ]
 
-# رسائل التنبيه حسب النمط وحسب الوقت (مستوى الخطر)
 REMIND_MSGS = {
     "morning": {
         "gentle": [
@@ -327,9 +327,6 @@ REMIND_MSGS = {
 # ──────────────────────── إدارة المستخدمين ──────────────────────
 
 
-# ──────────────────────── إدارة المستخدمين ──────────────────────
-
-
 def add_user(user_id, user_name="الصياد"):
     uid = str(user_id)
     existing = _users_col.find_one({"_id": uid})
@@ -387,7 +384,6 @@ def update_user(user_id, **kwargs):
         users_db[uid].update(kwargs)
     else:
         users_db[uid] = kwargs
-
 
 
 def get_rank_info(points):
@@ -500,21 +496,16 @@ def inline_confirm_reset():
     )
 
 
-# ───────────────────────── أوامر البوت ────────────────────────
+# ───────────────────────── الذكاء الاصطناعي ─────────────────────
 
-# ───────────────────── الذكاء الاصطناعي ─────────────────────
-
-# تخزين سياق المحادثة لكل مستخدم (في الذاكرة)
 _chat_history: dict = {}
 
 
 async def ask_ai(user_id: str, user_name: str, user_msg: str, user_data: dict) -> str:
-    """إرسال سؤال للذكاء الاصطناعي مع سياق الصياد"""
     client = get_groq()
     if not client:
         return "❌ النظام غير متصل حالياً. تحقق من مفتاح GROQ_API_KEY."
 
-    # ── بيانات الصياد الكاملة ──
     pts = user_data.get("points", 0)
     streak = user_data.get("streak", 0)
     best_streak = user_data.get("best_streak", 0)
@@ -528,11 +519,8 @@ async def ask_ai(user_id: str, user_name: str, user_msg: str, user_data: dict) -
     level = user_data.get("level", 0)
 
     rank, grade, next_pts, next_rank = get_rank_info(pts)
-
-    # نسبة النجاح
     success_rate = round((total_days / max(total_days + missed_days, 1)) * 100)
 
-    # النقاط المتبقية للرتبة التالية
     if next_pts:
         pts_to_next = next_pts - pts
         next_rank_str = f"{next_rank} (تحتاج {pts_to_next} نقطة)"
@@ -540,9 +528,8 @@ async def ask_ai(user_id: str, user_name: str, user_msg: str, user_data: dict) -
         pts_to_next = 0
         next_rank_str = "أنت في أعلى رتبة — Shadow Monarch 👑"
 
-    # تحليل الوضع الحالي
     if consec_miss >= 3:
-        status = "🔴 خطر حرج — فشل متتالي لـ 3 أيام أو أكثر، يخسر رتبته"
+        status = "🔴 خطر حرج — فشل متتالي لـ 3 أيام أو أكثر"
     elif consec_miss == 2:
         status = "🟠 تحذير — فشل يومين متتاليين"
     elif consec_miss == 1:
@@ -578,15 +565,13 @@ async def ask_ai(user_id: str, user_name: str, user_msg: str, user_data: dict) -
 📅 تاريخ الانضمام: {joined}
 🔔 نمط الإشعارات: {notify_style}
 ══════════════════════════════════
-استخدم هذه البيانات لتخصيص ردك بشكل دقيق وذكي.
 """
 
     full_system = SYSTEM_PROMPT + context_block
 
-    # ── بناء تاريخ المحادثة ──
     history = _chat_history.get(user_id, [])
     messages = [{"role": "system", "content": full_system}]
-    for h in history[-14:]:  # آخر 14 رسالة للذاكرة الأطول
+    for h in history[-14:]:
         messages.append({"role": h["role"], "content": h["text"]})
     messages.append({"role": "user", "content": user_msg})
 
@@ -601,12 +586,11 @@ async def ask_ai(user_id: str, user_name: str, user_msg: str, user_data: dict) -
 
         ai_reply = response.choices[0].message.content.strip()
 
-        # ── حفظ في التاريخ ──
         if user_id not in _chat_history:
             _chat_history[user_id] = []
         _chat_history[user_id].append({"role": "user", "text": user_msg})
         _chat_history[user_id].append({"role": "assistant", "text": ai_reply})
-        _chat_history[user_id] = _chat_history[user_id][-30:]  # آخر 30 رسالة
+        _chat_history[user_id] = _chat_history[user_id][-30:]
 
         return ai_reply
 
@@ -616,7 +600,6 @@ async def ask_ai(user_id: str, user_name: str, user_msg: str, user_data: dict) -
 
 
 async def ai_chat_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شاشة وضع الدردشة مع الذكاء الاصطناعي"""
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name or "الصياد"
     add_user(user_id, user_name)
@@ -649,7 +632,6 @@ async def ai_chat_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_ai_quick(
     update: Update, context: ContextTypes.DEFAULT_TYPE, quick_type: str
 ):
-    """معالجة الأزرار السريعة للذكاء الاصطناعي"""
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name or "الصياد"
     add_user(user_id, user_name)
@@ -672,7 +654,6 @@ async def handle_ai_quick(
 
 
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /ai للبدء مع النظام"""
     msg = " ".join(context.args) if context.args else ""
     if msg:
         user_id = update.effective_user.id
@@ -689,7 +670,6 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def clear_ai_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مسح تاريخ المحادثة مع الذكاء الاصطناعي"""
     uid = str(update.effective_user.id)
     _chat_history.pop(uid, None)
     await update.message.reply_text(
@@ -699,7 +679,7 @@ async def clear_ai_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ──────────────────────────────────────────────────────────────
+# ───────────────────────── أوامر البوت ─────────────────────────
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -924,7 +904,7 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     danger = f"⚠️ {miss} أيام متتالية فاشلة!" if miss > 0 else "✅ لا عقوبات متراكمة"
 
     msg = (
-        f"╔═════ٕ�════════════════╗\n"
+        f"╔══════════════════════╗\n"
         f"║  🎮 Solo Leveling RPG ║\n"
         f"╠══════════════════════╣\n"
         f"║ 👤 {user_name}\n"
@@ -1116,7 +1096,7 @@ async def show_goals(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🏅 احصل على المزيد من الإنجازات ({earned_count}/{len(ACHIEVEMENTS)})"
         )
     if not goals:
-        goals.append("👑 أنت تتقد�� بشكل مثالي!")
+        goals.append("👑 أنت تتقدم بشكل مثالي!")
 
     msg = "🎯 *أهدافك القريبة*\n━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     for i, g in enumerate(goals, 1):
@@ -1129,28 +1109,12 @@ async def show_goals(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_backup_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        all_backups = sorted(
-            [
-                f
-                for f in os.listdir(BACKUP_DIR)
-                if f.startswith("backup_") and f.endswith(".json")
-            ],
-            reverse=True,
-        )
-        count = len(all_backups)
-        latest = (
-            all_backups[0].replace("backup_", "").replace(".json", "")
-            if all_backups
-            else "لا يوجد"
-        )
-        db_exists = "✅ نشطة" if os.path.exists(DATA_FILE) else "⚠️ غير موجودة"
+        count = _users_col.count_documents({})
         msg = (
             f"💾 *حالة الحفظ التلقائي*\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"✅ قاعدة البيانات: *{db_exists}*\n"
-            f"📦 عدد النسخ الاحتياطية: *{count}*\n"
-            f"🕐 آخر نسخة: *{latest}*\n"
-            f"👥 المستخدمين المحفوظين: *{len(users_db)}*\n"
+            f"✅ قاعدة البيانات: *MongoDB Atlas ☁️*\n"
+            f"👥 المستخدمين المحفوظين: *{count}*\n"
             f"⏰ الحفظ التلقائي: *كل ساعتين*\n\n"
             f"_🔒 بياناتك محفوظة وآمنة!_"
         )
@@ -1236,7 +1200,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.effective_user.first_name or "الصياد"
     add_user(user_id, user_name)
 
-    # ── أزرار النظام (الذكاء الاصطناعي) السريعة ──
     ai_quick_map = {
         "❓ اسأل النظام عن التدريب": "train",
         "💪 محفزني يا نظام!": "motivate",
@@ -1273,7 +1236,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handler(update, context)
         return
 
-    # ── إذا المستخدم في وضع الدردشة مع الذكاء الاصطناعي ──
     if context.user_data.get("ai_mode"):
         user = get_user(user_id)
         await update.message.reply_text("🌑 _النظام يعالج..._", parse_mode="Markdown")
@@ -1334,9 +1296,6 @@ async def _send_reminder_to_all(context, category, extra_lines=""):
     logging.info(f"📤 تم إرسال تنبيه [{category}] لـ {count} مستخدم")
 
 
-# --- تنبيهات الأوقات المختلفة ---
-
-
 async def remind_morning(context):
     await _send_reminder_to_all(context, "morning")
 
@@ -1389,33 +1348,28 @@ async def daily_penalty_check(context: ContextTypes.DEFAULT_TYPE):
         data = doc
         last_date = data.get("last_task_date")
 
-        # إعادة تعيين task_completed_today لليوم الجديد
         if last_date == yesterday:
-            # أنجز أمس = عادي، أعد تعيين الحالة اليومية
             update_user(uid, task_completed_today=False, consecutive_misses=0)
             continue
 
         if last_date == today and data.get("task_completed_today"):
-            # أنجز اليوم = لا شيء
             continue
 
-        # لم ينجز
         consec = data.get("consecutive_misses", 0) + 1
         missed = data.get("missed_days", 0) + 1
 
-        # حساب العقوبة المضاعفة
         if consec == 1:
             penalty = 30
         elif consec == 2:
             penalty = 50
         else:
-            penalty = 80  # 3+ أيام متتالية
+            penalty = 80
 
         old_pts = data.get("points", 0)
         new_pts = max(0, old_pts - penalty)
         total_penalties = data.get("total_penalties", 0) + penalty
         new_level = max(0, data.get("level", 0) - (1 if consec >= 3 else 0))
-        new_streak = 0  # كسر خط النار
+        new_streak = 0
 
         update_user(
             uid,
@@ -1487,7 +1441,6 @@ def stats_page():
     active = sum(1 for u in all_users if u.get("last_task_date") == today and u.get("task_completed_today"))
     total_pts = sum(u.get("points", 0) for u in all_users)
     top_streak = max((u.get("streak", 0) for u in all_users), default=0)
-    backups = "MongoDB ☁️"
 
     html = f"""<!DOCTYPE html>
 <html dir="rtl" lang="ar">
@@ -1519,7 +1472,7 @@ h1{{font-size:2.4em;color:#a78bfa;margin-bottom:6px;text-shadow:0 0 25px #7c3aed
   <div class="card"><div class="num">{active}</div><div class="lbl">🔥 نشط اليوم</div></div>
   <div class="card"><div class="num">{total_pts}</div><div class="lbl">⭐ إجمالي النقاط</div></div>
   <div class="card"><div class="num">{top_streak}</div><div class="lbl">🔥 أطول خط نار</div></div>
-  <div class="card"><div class="num">{backups}</div><div class="lbl">💾 نسخ احتياطية</div></div>
+  <div class="card"><div class="num">MongoDB ☁️</div><div class="lbl">💾 نسخ احتياطية</div></div>
   <div class="card"><div class="num">{get_local_time().strftime("%H:%M")}</div><div class="lbl">🕐 الوقت</div></div>
 </div>
 <div class="status">✅ البوت يعمل — جميع الأنظمة نشطة — التنبيهات مجدولة</div>
@@ -1541,13 +1494,7 @@ def api_page():
     })
 
 
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    logging.info(f"🌐 سيرفر Flask بدأ على المنفذ {port}")
-    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-
-
-# ─────────────────────── Main ─────────────────────────
+# ─────────────────────── Main — الإصلاح الرئيسي ─────────────────────
 
 
 async def bot_main():
@@ -1582,34 +1529,24 @@ async def bot_main():
     await app.run_polling()
 
 
-def run_bot():
-    asyncio.run(bot_main())
 def main():
-    # 1. تشغيل Flask في خيط منفصل (Background)
-    # هذا يضمن أن Render يرى المنفذ 8080 مفتوحاً
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    # ✅ الإصلاح: Flask في thread منفصل، البوت في main thread
+    port = int(os.environ.get("PORT", 8080))
+    flask_thread = threading.Thread(
+        target=lambda: flask_app.run(
+            host="0.0.0.0",
+            port=port,
+            debug=False,
+            use_reloader=False
+        ),
+        daemon=True
+    )
     flask_thread.start()
+    logging.info(f"🌐 Flask بدأ في thread منفصل على المنفذ {port}")
 
-    # 2. تشغيل البوت في الخيط الرئيسي (Main)
-    # هذا هو التغيير الأهم لضمان استجابة تليجرام
-    logging.info("🚀 جاري تشغيل بوت Solo Leveling...")
-    
-    # بناء التطبيق مباشرة هنا
-    app = Application.builder().token(TOKEN).build()
+    # البوت يشتغل في main thread — هذا هو الإصلاح الأساسي
+    asyncio.run(bot_main())
 
-    # إضافة المعالجات
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("ai", ai_command))
-    app.add_handler(CommandHandler("clear", clear_ai_history))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-    app.add_handler(CallbackQueryHandler(callback_handler))
-
-    # إضافة الجدولة الزمنية (Job Queue)
-    # (تأكد أن الجدولة مضافة هنا كما في كودك السابق)
-
-    # تشغيل البوت ومنعه من التوقف
-    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
