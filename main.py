@@ -1532,22 +1532,25 @@ def run_bot_thread():
     logging.info(f"👥 المستخدمين: {len(users_db)}")
 
     # run_polling تشغّل الـ loop داخلياً — لا نحتاج asyncio.run()
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(drop_pending_updates=True)def main():
+    # 1. تشغيل Flask في خيط منفصل (الخلفية)
+    # هذا يرضي منصة Render ويفتح المنفذ 8080
+    threading.Thread(target=run_flask, daemon=True).start()
 
+    # 2. بناء وتجهيز البوت
+    app = Application.builder().token(TOKEN).build()
 
-def main():
-    # ✅ الإصلاح النهائي لـ Python 3.14:
-    # البوت في thread منفصل مع loop خاص به
-    # Flask في main thread
-    bot_thread = threading.Thread(target=run_bot_thread, daemon=True)
-    bot_thread.start()
-    logging.info("🤖 بوت Solo Leveling يشتغل في thread منفصل")
+    # إضافة الأوامر (Handlers)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("ai", ai_command))
+    # ... أضف باقي الـ Handlers الخاصة بك هنا ...
 
-    # Flask يشتغل في main thread — Render يشوفه ويعرف السيرفر شغّال
-    port = int(os.environ.get("PORT", 8080))
-    logging.info(f"🌐 Flask بدأ على المنفذ {port}")
-    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-
+    # 3. تشغيل البوت في الخيط الرئيسي (Main Thread)
+    # نضع stop_signals=None لحل مشكلة نظام Unix في Render
+    logging.info("🚀 نظام Solo Leveling بدأ العمل في الخيط الرئيسي...")
+    
+    app.run_polling(drop_pending_updates=True, stop_signals=None)
 
 if __name__ == "__main__":
     main()
