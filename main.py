@@ -1501,17 +1501,18 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     logging.info(f"🌐 سيرفر Flask بدأ على المنفذ {port}")
     flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-
-
 def main():
     # 1. تشغيل Flask في خيط منفصل (الخلفية)
-    # هذا يرضي منصة Render ويفتح المنفذ 8080
-    threading.Thread(target=run_flask, daemon=True).start()
+    # نستخدم daemon=True لضمان إغلاقه عند إغلاق البرنامج الرئيسي
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logging.info("✅ سيرفر Flask يعمل في الخلفية...")
 
-    # 2. بناء وتجهيز البوت
+    # 2. بناء التطبيق (استخدام التوكن)
+    # تأكد أن TOKEN معرف في الأعلى أو مسحوب من os.getenv
     app = Application.builder().token(TOKEN).build()
 
-    # إضافة الأوامر (Handlers)
+    # 3. إضافة الأوامر (Handlers)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("ai", ai_command))
@@ -1519,30 +1520,23 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     app.add_handler(CallbackQueryHandler(callback_handler))
 
-    # إضافة الجدولة الزمنية
+    # 4. إعداد الجدولة الزمنية (Job Queue)
     jq = app.job_queue
+    # ملاحظة: تأكد أن IRAQ_TZ معرف كـ pytz.timezone("Asia/Baghdad")
     jq.run_daily(remind_morning, time=datetime_time(8, 0, tzinfo=IRAQ_TZ))
-    jq.run_daily(remind_10am, time=datetime_time(10, 0, tzinfo=IRAQ_TZ))
-    jq.run_daily(remind_noon, time=datetime_time(12, 0, tzinfo=IRAQ_TZ))
-    jq.run_daily(remind_2pm, time=datetime_time(14, 0, tzinfo=IRAQ_TZ))
-    jq.run_daily(remind_4pm, time=datetime_time(16, 0, tzinfo=IRAQ_TZ))
-    jq.run_daily(remind_6pm, time=datetime_time(18, 0, tzinfo=IRAQ_TZ))
-    jq.run_daily(remind_8pm, time=datetime_time(20, 0, tzinfo=IRAQ_TZ))
-    jq.run_daily(remind_10pm, time=datetime_time(22, 0, tzinfo=IRAQ_TZ))
-    jq.run_daily(remind_11pm, time=datetime_time(23, 0, tzinfo=IRAQ_TZ))
-    jq.run_daily(remind_1130pm, time=datetime_time(23, 30, tzinfo=IRAQ_TZ))
+    # ... (بقية الـ jobs التي كتبتها اتركها كما هي هنا) ...
     jq.run_daily(daily_penalty_check, time=datetime_time(0, 1, tzinfo=IRAQ_TZ))
-    jq.run_repeating(auto_backup, interval=7200, first=300)
-    jq.run_daily(auto_backup, time=datetime_time(3, 0, tzinfo=IRAQ_TZ))
 
-    # 3. تشغيل البوت في الخيط الرئيسي (Main Thread)
-    # إنشاء event loop يدوياً — Python 3.14 لا ينشئه تلقائياً
-    logging.info("🚀 نظام Solo Leveling بدأ العمل في الخيط الرئيسي...")
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    app.run_polling(drop_pending_updates=True, stop_signals=None)
-
+    # 5. تشغيل البوت (الطريقة المتوافقة مع Python 3.14 و Render)
+    logging.info("🚀 نظام Solo Leveling بدأ العمل...")
+    
+    # لا تقم بإنشاء loop يدوياً، دع run_polling تتعامل مع ذلك
+    # stop_signals=None هو السر لعدم تعليق البوت في Render
+    app.run_polling(
+        drop_pending_updates=True, 
+        stop_signals=None, 
+        close_loop=False
+    )
 
 if __name__ == "__main__":
     main()
