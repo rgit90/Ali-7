@@ -1536,9 +1536,11 @@ def main():
     jq.run_daily(auto_backup, time=datetime_time(3, 0, tzinfo=IRAQ_TZ))
 
     # 3. تشغيل البوت في الخيط الرئيسي (Main Thread)
-    # نضع stop_signals=None لحل مشكلة نظام Unix في Render
+    # إنشاء event loop يدوياً — Python 3.14 لا ينشئه تلقائياً
     logging.info("🚀 نظام Solo Leveling بدأ العمل في الخيط الرئيسي...")
 
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     app.run_polling(drop_pending_updates=True, stop_signals=None)
 
 
