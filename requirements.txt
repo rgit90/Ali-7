@@ -5,3 +5,10 @@ dnspython
 flask
 groq
 pytz
+dnspython
+flask
+groq
+pymongo[srv]
+python-telegram-bot[job-queue]==21.6
+pytz
+telegram
