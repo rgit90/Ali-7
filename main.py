@@ -1494,17 +1494,24 @@ def api_page():
     })
 
 
-# ─────────────────────── Main — الإصلاح الرئيسي ─────────────────────
+# ─────────────────────── Main ─────────────────────────
 
 
-def run_bot_thread():
-    """تشغيل البوت في thread منفصل مع event loop خاص به"""
-    # إنشاء event loop جديد خاص بهذا الـ thread
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    logging.info(f"🌐 سيرفر Flask بدأ على المنفذ {port}")
+    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
+
+def main():
+    # 1. تشغيل Flask في خيط منفصل (الخلفية)
+    # هذا يرضي منصة Render ويفتح المنفذ 8080
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    # 2. بناء وتجهيز البوت
     app = Application.builder().token(TOKEN).build()
 
+    # إضافة الأوامر (Handlers)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("ai", ai_command))
@@ -1512,8 +1519,8 @@ def run_bot_thread():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     app.add_handler(CallbackQueryHandler(callback_handler))
 
+    # إضافة الجدولة الزمنية
     jq = app.job_queue
-
     jq.run_daily(remind_morning, time=datetime_time(8, 0, tzinfo=IRAQ_TZ))
     jq.run_daily(remind_10am, time=datetime_time(10, 0, tzinfo=IRAQ_TZ))
     jq.run_daily(remind_noon, time=datetime_time(12, 0, tzinfo=IRAQ_TZ))
@@ -1528,29 +1535,12 @@ def run_bot_thread():
     jq.run_repeating(auto_backup, interval=7200, first=300)
     jq.run_daily(auto_backup, time=datetime_time(3, 0, tzinfo=IRAQ_TZ))
 
-    logging.info("🚀 بوت Solo Leveling بدأ!")
-    logging.info(f"👥 المستخدمين: {len(users_db)}")
-
-    # run_polling تشغّل الـ loop داخلياً — لا نحتاج asyncio.run()
-    app.run_polling(drop_pending_updates=True)def main():
-    # 1. تشغيل Flask في خيط منفصل (الخلفية)
-    # هذا يرضي منصة Render ويفتح المنفذ 8080
-    threading.Thread(target=run_flask, daemon=True).start()
-
-    # 2. بناء وتجهيز البوت
-    app = Application.builder().token(TOKEN).build()
-
-    # إضافة الأوامر (Handlers)
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("ai", ai_command))
-    # ... أضف باقي الـ Handlers الخاصة بك هنا ...
-
     # 3. تشغيل البوت في الخيط الرئيسي (Main Thread)
     # نضع stop_signals=None لحل مشكلة نظام Unix في Render
     logging.info("🚀 نظام Solo Leveling بدأ العمل في الخيط الرئيسي...")
-    
+
     app.run_polling(drop_pending_updates=True, stop_signals=None)
+
 
 if __name__ == "__main__":
     main()
