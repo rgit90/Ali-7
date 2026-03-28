@@ -1497,7 +1497,12 @@ def api_page():
 # ─────────────────────── Main — الإصلاح الرئيسي ─────────────────────
 
 
-async def bot_main():
+def run_bot_thread():
+    """تشغيل البوت في thread منفصل مع event loop خاص به"""
+    # إنشاء event loop جديد خاص بهذا الـ thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -1526,26 +1531,22 @@ async def bot_main():
     logging.info("🚀 بوت Solo Leveling بدأ!")
     logging.info(f"👥 المستخدمين: {len(users_db)}")
 
-    await app.run_polling()
+    # run_polling تشغّل الـ loop داخلياً — لا نحتاج asyncio.run()
+    app.run_polling(drop_pending_updates=True)
 
 
 def main():
-    # ✅ الإصلاح: Flask في thread منفصل، البوت في main thread
-    port = int(os.environ.get("PORT", 8080))
-    flask_thread = threading.Thread(
-        target=lambda: flask_app.run(
-            host="0.0.0.0",
-            port=port,
-            debug=False,
-            use_reloader=False
-        ),
-        daemon=True
-    )
-    flask_thread.start()
-    logging.info(f"🌐 Flask بدأ في thread منفصل على المنفذ {port}")
+    # ✅ الإصلاح النهائي لـ Python 3.14:
+    # البوت في thread منفصل مع loop خاص به
+    # Flask في main thread
+    bot_thread = threading.Thread(target=run_bot_thread, daemon=True)
+    bot_thread.start()
+    logging.info("🤖 بوت Solo Leveling يشتغل في thread منفصل")
 
-    # البوت يشتغل في main thread — هذا هو الإصلاح الأساسي
-    asyncio.run(bot_main())
+    # Flask يشتغل في main thread — Render يشوفه ويعرف السيرفر شغّال
+    port = int(os.environ.get("PORT", 8080))
+    logging.info(f"🌐 Flask بدأ على المنفذ {port}")
+    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":
